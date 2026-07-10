@@ -21,8 +21,12 @@ from vdi_channel.transport import ClipboardTransport
 
 
 def _cfg(**kw):
+    # ack_timeout_s/close_timeout_s default to generous values tuned for a real
+    # cross-VDI clipboard boundary; these tests model a same-machine loopback
+    # (no such latency), so use fast timeouts to keep the suite quick.
     base = dict(probe_cap_on_start=False, default_cap=1200, compress="zstd",
-                compress_min_bytes=32, poll_interval_ms=10)
+                compress_min_bytes=32, poll_interval_ms=10,
+                ack_timeout_s=5.0, close_timeout_s=3.0)
     base.update(kw)
     return Config(**base)
 

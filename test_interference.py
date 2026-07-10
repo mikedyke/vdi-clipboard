@@ -21,8 +21,11 @@ logging.basicConfig(level=logging.WARNING, stream=sys.stderr,
 
 
 def cfg(**kw):
+    # This is a same-machine loopback (real OS clipboard, no cross-VDI latency),
+    # so use fast handshake timeouts rather than the product's VDI-tuned defaults.
     base = dict(probe_cap_on_start=False, default_cap=1200, compress="zstd",
-               compress_min_bytes=32, poll_interval_ms=40)
+               compress_min_bytes=32, poll_interval_ms=40,
+               ack_timeout_s=10.0, close_timeout_s=5.0)
     base.update(kw)
     return Config(**base)
 

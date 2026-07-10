@@ -118,13 +118,18 @@ class LocalChannel:
                     self._close(nonce)
                     return
 
-    def _close(self, nonce: str, timeout: float = 5.0) -> None:
+    def _close(self, nonce: str, timeout: float | None = None) -> None:
         """Write FIN and wait for the helper's IDLE scrub before returning.
 
         Waiting for IDLE confirms the helper consumed our FIN, so the next
         exchange's REQ can't clobber the single slot mid-handshake (§3.3).
+        Bounded by ``cfg.close_timeout_s`` — a real cross-VDI clipboard hop can
+        take much longer than a same-machine round trip, so if this times out
+        silently, the caller has already moved on before the helper's IDLE
+        (or even our FIN) actually crossed the boundary.
         """
         self.t.write_frame(codec.make_fin(nonce))
+        timeout = self.cfg.close_timeout_s if timeout is None else timeout
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             frame = self.t.read_frame(min(4 * self.cfg.poll_interval_ms,

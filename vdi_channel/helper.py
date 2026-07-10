@@ -132,8 +132,14 @@ class Helper:
 
     # -- flow control ------------------------------------------------------- #
     def _await(self, nonce: str, want: str, msg: int = 0, seq: int = 0,
-               timeout_s: float = 30.0) -> None:
-        """Poll until the requester's ACK/FIN for this frame arrives (§3.3)."""
+               timeout_s: float | None = None) -> None:
+        """Poll until the requester's ACK/FIN for this frame arrives (§3.3).
+
+        Bounded by ``cfg.ack_timeout_s`` — tune this up for a real cross-VDI
+        clipboard boundary, where a round trip can take much longer than the
+        sub-second latency seen on a single shared OS clipboard.
+        """
+        timeout_s = self.cfg.ack_timeout_s if timeout_s is None else timeout_s
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             remaining_ms = int(max(0, deadline - time.monotonic()) * 1000)

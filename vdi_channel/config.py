@@ -33,6 +33,15 @@ class Config:
     # channel-level
     request_timeout_s: float = 60.0
 
+    # Per-frame handshake timeouts. Same-machine testing sees sub-second round
+    # trips, but a real Citrix/RDP clipboard-redirection hop can take much
+    # longer and more variably to sync a value across the VDI boundary. Bump
+    # these (VDI_ACK_TIMEOUT_S / VDI_CLOSE_TIMEOUT_S) if a real deployment sees
+    # "no ACK"/"no FIN" transport_timeout warnings under normal (non-duplicate-
+    # helper) operation.
+    ack_timeout_s: float = 60.0   # helper: how long to wait for ACK/FIN from the requester
+    close_timeout_s: float = 30.0  # local: how long to wait for the helper's IDLE after FIN
+
     @classmethod
     def from_env(cls, **overrides) -> "Config":
         """Build a Config, letting ``VDI_*`` env vars override the defaults."""

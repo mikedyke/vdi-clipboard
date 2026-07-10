@@ -149,6 +149,17 @@ Defaults live in `config.py` (§10) and are overridable via `VDI_*` env vars, e.
 `VDI_PROBE_CAP_ON_START=false`. The MCP server reads them from its environment
 (see `.mcp.json`); the helper reads them from the session environment.
 
+**Tuning for a real VDI clipboard boundary.** `poll_interval_ms` only controls how
+often each side checks its *own* view of the clipboard — it doesn't govern how fast
+Citrix/RDP clipboard redirection actually syncs a value across the session boundary,
+which can be far slower and more variable than a same-machine round trip. Two
+handshake timeouts bound that: `VDI_ACK_TIMEOUT_S` (helper: how long it waits for the
+requester's ACK/FIN, default 60s) and `VDI_CLOSE_TIMEOUT_S` (local: how long it waits
+for the helper's IDLE after sending FIN, default 30s). If you see `transport_timeout`
+warnings (`no ACK`/`no FIN`) under normal single-helper operation, raise these on
+**both** sides — set the env var wherever each process runs, since each only reads its
+own environment.
+
 ## Scope
 
 Implemented: the **clipboard transport** end to end (spec build order M1–M3 — codec, cap

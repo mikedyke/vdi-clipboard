@@ -5,9 +5,14 @@ exchange that stalls (e.g. its ACK never arrives because another helper already
 answered and closed it) must not clobber a newer REQ the requester has since
 started while finalizing the old, abandoned exchange.
 """
+import time
+
+import pytest
+
 from vdi_channel import codec
 from vdi_channel.clipboard import InMemoryClipboard
 from vdi_channel.config import Config
+from vdi_channel.errors import TransportTimeout
 from vdi_channel.helper import Helper
 from vdi_channel.transport import ClipboardTransport
 
@@ -41,6 +46,22 @@ def test_finalize_scrubs_normally_when_slot_is_idle_or_empty():
 
     written = codec.parse(codec.normalize(shared.get_text()))
     assert written.type == codec.IDLE
+
+
+def test_await_uses_configured_ack_timeout_not_hardcoded():
+    # cfg.ack_timeout_s must actually drive _await's deadline (not a hardcoded
+    # constant) -- verified by observing it time out close to the configured
+    # value with nothing ever acking.
+    cfg = Config(probe_cap_on_start=False, default_cap=1200, ack_timeout_s=0.2)
+    shared = InMemoryClipboard()
+    helper = Helper(transport=ClipboardTransport(cfg, clipboard=shared), cfg=cfg)
+
+    started = time.monotonic()
+    with pytest.raises(TransportTimeout):
+        helper._await("nonce1", want=codec.FIN)
+    elapsed = time.monotonic() - started
+
+    assert 0.15 <= elapsed <= 2.0  # close to the 0.2s configured, not 30s+ default
 
 
 def test_finalize_scrubs_when_slot_holds_own_stale_frame():
