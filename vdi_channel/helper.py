@@ -138,6 +138,13 @@ class Helper:
         Bounded by ``cfg.ack_timeout_s`` — tune this up for a real cross-VDI
         clipboard boundary, where a round trip can take much longer than the
         sub-second latency seen on a single shared OS clipboard.
+
+        Abandons early — well before ``timeout_s`` — if a REQ for a *different*
+        nonce shows up while waiting: that means the requester has already moved
+        on to a new exchange (its own ACK/FIN-wait or close gave up first), so
+        there's nothing left to receive our ACK/FIN for. Waiting out the full
+        timeout in that case would leave the helper deaf to the new REQ — already
+        sitting on the slot — for the rest of the window, for no benefit.
         """
         timeout_s = self.cfg.ack_timeout_s if timeout_s is None else timeout_s
         deadline = time.monotonic() + timeout_s
@@ -149,6 +156,11 @@ class Helper:
                 self.t.reassert()
                 continue
             if frame.nonce != nonce:
+                if frame.type == codec.REQ:
+                    raise TransportTimeout(
+                        f"abandoned waiting for {want} on {nonce}: "
+                        f"requester already sent a new REQ ({frame.nonce})"
+                    )
                 continue
             if frame.type != want:
                 continue

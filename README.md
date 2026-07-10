@@ -134,6 +134,12 @@ hard way in testing):
   active — see §5).
 - **Partial-sync guard.** A frame failing LEN/CRC is treated as a mid-sync read and
   re-polled (up to `truncation_retries`) rather than ACKed.
+- **Don't go deaf waiting on a slow/lost FIN.** If a real cross-VDI clipboard round trip
+  makes the closing handshake slow or unreliable, the helper's wait for ACK/FIN
+  (`_await`) would otherwise ignore any newer REQ that arrives in the meantime and sit
+  out the full `ack_timeout_s` before ever looking at it. Instead it abandons the wait
+  immediately on seeing a REQ for a different nonce — the requester has clearly moved
+  on — so the next request gets served right away instead of after a multi-minute stall.
 - **FIN→IDLE close.** The requester waits for the helper's `IDLE` scrub after `FIN`
   before returning, so the next exchange's `REQ` can't clobber the slot mid-handshake.
 - **Startup scrub.** The helper clears the slot on boot so a stale `REQ` from a prior

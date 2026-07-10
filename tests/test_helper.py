@@ -64,6 +64,28 @@ def test_await_uses_configured_ack_timeout_not_hardcoded():
     assert 0.15 <= elapsed <= 2.0  # close to the 0.2s configured, not 30s+ default
 
 
+def test_await_abandons_early_when_newer_req_arrives():
+    # If the requester has already moved on to a new exchange (its own FIN/close
+    # gave up first, and it sent a new REQ), _await must not sit out the full
+    # ack_timeout_s -- that would leave the helper deaf to the new REQ for no
+    # reason, even though it's already sitting right there on the slot.
+    cfg = Config(probe_cap_on_start=False, default_cap=1200, ack_timeout_s=30.0,
+                 poll_interval_ms=10)
+    shared = InMemoryClipboard()
+    helper = Helper(transport=ClipboardTransport(cfg, clipboard=shared), cfg=cfg)
+
+    newer_req = codec.Frame(codec.REQ, "newnonce2", msg=0, seq=1, total=1,
+                            enc="A", comp="-", payload=b"ping")
+    shared.set_text(newer_req.to_text())
+
+    started = time.monotonic()
+    with pytest.raises(TransportTimeout):
+        helper._await("stalenonce", want=codec.FIN)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0  # abandoned almost immediately, not after the 30s deadline
+
+
 def test_finalize_scrubs_when_slot_holds_own_stale_frame():
     helper, shared = _make_helper()
     # Slot holds an RSP/ACK/FIN of the SAME exchange (not a different REQ) -- still safe to scrub.
