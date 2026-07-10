@@ -1,0 +1,5 @@
+# Local driver (MCP server) + in-session helper
+mcp>=1.2.0            # MCP server SDK (FastMCP) — local driver only
+zstandard>=0.22.0    # default compression (§11); gzip stdlib is the fallback
+pywin32>=306         # Windows CF_UNICODETEXT clipboard access (primary)
+pyperclip>=1.8.2     # portable clipboard fallback (non-Windows / dev)

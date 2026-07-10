@@ -1,0 +1,118 @@
+# vdi-clipboard
+
+A request/response **data channel into a VDI session over the clipboard**, plus a
+**Claude Code MCP server** that drives it. Implements the CBP (Clipboard Protocol)
+from [`data-channel-spec.md`](data-channel-spec.md) — clipboard transport (§3, §5),
+compression (§3.2), multi-message streaming and chunking (§3.3, §8).
+
+```
+Claude Code ──stdio──► MCP server (local driver) ──clipboard──► Helper (in VDI) ──► PowerShell
+   tools              vdi_channel.mcp_server        CBP frames    vdi_channel.helper
+```
+
+Two processes talk through one shared clipboard text slot:
+
+- **Local driver** — an MCP server (`run_mcp.py`) exposing `vdi_*` tools to Claude Code.
+  It mints requests, writes `REQ` frames, and reassembles the responses.
+- **In-session helper** — `run_helper.py`, run *inside* the remote desktop. It polls
+  the clipboard for `REQ`s, executes each command in an underlying PowerShell, and
+  writes the result back as `RSP` frames — **compressed (zstd)**, **chunked** under the
+  clipboard cap, and **multi-message** (progress lines then final output).
+
+## Install
+
+```powershell
+pip install -r requirements.txt
+```
+
+`zstandard`, `pywin32`, and `pyperclip` are used when present; gzip + pyperclip are
+the fallbacks.
+
+## Run
+
+**Inside the VDI session** (the remote side):
+
+```powershell
+python run_helper.py
+```
+
+**On the local host**, register the MCP server with Claude Code. A ready-made
+[`.mcp.json`](.mcp.json) is included — or:
+
+```powershell
+claude mcp add vdi-clipboard -- python C:/Projects/vdi-clipboard/run_mcp.py
+```
+
+Claude Code then has these tools (all run *in-session*, only results cross the wire):
+
+| Tool | Purpose |
+|---|---|
+| `vdi_ping` | Liveness + helper version + discovered clipboard cap |
+| `vdi_exec` | Run a PowerShell command, stream output back |
+| `vdi_read` | Read a byte window of a file (`offset`, `limit`) |
+| `vdi_grep` | In-session `Select-String`; returns matches only |
+| `vdi_stat` | size / mtime / type for a path |
+| `vdi_ls`   | Directory listing (optional glob) |
+| `vdi_get`  | Whole file, compressed+chunked (bounded by `max_get_bytes`) |
+
+Prefer `grep`/`read`/`stat` (a slice) over `get` (the blob) — the channel is a
+needle-delivery mechanism, not a file pipe (§7.1, §13).
+
+## Test without Claude Code
+
+```powershell
+python vdi_cli.py ping
+python vdi_cli.py exec "Get-Process | Select-Object -First 5"
+python test_loopback.py   # helper thread + channel over the real clipboard
+python test_mcp.py        # real MCP stdio subprocess + helper thread
+```
+
+## How it works (map to the spec)
+
+| Module | Spec | Responsibility |
+|---|---|---|
+| `codec.py` | §3.1, §3.2, §3.6 | Frame parse/serialize, base64, zstd/gzip, CRC32, chunk split/join |
+| `clipboard.py` | §5 | `CF_UNICODETEXT` I/O (pywin32 → pyperclip fallback) |
+| `transport.py` | §4, §5 | Physical read/write, `_last_raw` dedupe, truncation retry, cap probe |
+| `channel.py` | §3.3, §9 | Requester half: `send_query` / `read_responses`, `request()` |
+| `helper.py` | §7 | Responder REPL: poll → dispatch → stream RSP with MORE/END + ACK |
+| `commands.py` | §7.1 | `ping`/`exec`/`read`/`grep`/`stat`/`ls`/`get` (PowerShell + filesystem) |
+| `mcp_server.py` | §9 | FastMCP tools wrapping `channel.request` |
+
+**Key correctness points** (all clipboard-specific hazards from §3.4, learned the
+hard way in testing):
+
+- **Single-slot dedupe.** Each side records the last text it wrote or read; a frame
+  is acted on only if it differs, matches the magic + nonce, and passes LEN/CRC.
+- **Coexisting with normal clipboard use.** Any value that isn't a `CBP/1` frame — a
+  user copying text, another app writing the clipboard — is ignored, never misread as
+  a frame. If such a copy lands *mid-exchange* and clobbers an in-flight frame, the
+  side awaiting acknowledgment detects the foreign value and **retransmits** its frame
+  (`transport.reassert`), so the exchange self-heals instead of stalling. With
+  `restore_user_clipboard=true` the user's pre-exchange clipboard content is snapshotted
+  and put back when the exchange finishes (the channel still co-opts the slot *while*
+  active — see §5).
+- **Partial-sync guard.** A frame failing LEN/CRC is treated as a mid-sync read and
+  re-polled (up to `truncation_retries`) rather than ACKed.
+- **FIN→IDLE close.** The requester waits for the helper's `IDLE` scrub after `FIN`
+  before returning, so the next exchange's `REQ` can't clobber the slot mid-handshake.
+- **Startup scrub.** The helper clears the slot on boot so a stale `REQ` from a prior
+  run can't strand it in a dead exchange.
+- **Newline-safe framing.** `ENC=A` is used only for CR/LF-free text; anything with
+  newlines (e.g. command output) becomes `ENC=B` base64, so the sole `\n` in a frame
+  is the header separator — surviving clipboards that rewrite line endings.
+
+## Configuration
+
+Defaults live in `config.py` (§11) and are overridable via `VDI_*` env vars, e.g.
+`VDI_COMPRESS=gzip`, `VDI_POLL_INTERVAL_MS=50`, `VDI_MAX_GET_BYTES=4194304`,
+`VDI_PROBE_CAP_ON_START=false`. The MCP server reads them from its environment
+(see `.mcp.json`); the helper reads them from the session environment.
+
+## Scope
+
+Implemented: the **clipboard transport** (spec build order M1 + M2 — codec, cap probe,
+truncation guard, state machine, multi-response streaming, chunking, compression,
+dedupe/idempotent ACK, ERR path, IDLE scrub). **Not** implemented: the Keyboard+QR
+fallback transport (M3+, §6) — the `Transport` interface is in place for it — and rich
+clipboard formats / bulk file transfer (explicit non-goals, §13).

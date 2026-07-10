@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "vdi-clipboard": {
+      "command": "python",
+      "args": ["C:/Projects/vdi-clipboard/run_mcp.py"],
+      "env": {
+        "VDI_COMPRESS": "zstd",
+        "VDI_POLL_INTERVAL_MS": "75"
+      }
+    }
+  }
+}
