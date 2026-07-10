@@ -1,4 +1,4 @@
-"""Local channel API (§9) — the requester half of the CBP state machine (§3.3).
+"""Local channel API (§8) — the requester half of the CBP state machine (§3.3).
 
 ``send_query`` writes a REQ; ``read_responses`` drives stop-and-wait receipt:
 verify -> ACK each RSP chunk -> reassemble per message -> decode -> yield. It is
@@ -35,7 +35,7 @@ class LocalChannel:
         self.t = transport or ClipboardTransport(self.cfg)
         self._lock = threading.Lock()  # one exchange at a time over the single slot
 
-    # -- §9 send_query ------------------------------------------------------ #
+    # -- §8 send_query ------------------------------------------------------ #
     def send_query(self, payload: str) -> str:
         nonce = secrets.token_hex(4)  # 8 hex chars, >= 8 per §3.1
         enc, comp, wire = codec.encode_payload(
@@ -46,7 +46,7 @@ class LocalChannel:
         self.t.write_frame(req)
         return nonce
 
-    # -- §9 read_responses -------------------------------------------------- #
+    # -- §8 read_responses -------------------------------------------------- #
     def read_responses(self, nonce: str, timeout: float | None = None):
         timeout = self.cfg.request_timeout_s if timeout is None else timeout
         deadline = time.monotonic() + timeout
@@ -144,7 +144,7 @@ class LocalChannel:
         self.t.cb.set_text(self._req_text)
         self.t._last_raw = self._req_text
 
-    # -- convenience wrapper (§9) ------------------------------------------- #
+    # -- convenience wrapper (§8) ------------------------------------------- #
     def request(self, line: str, timeout: float | None = None) -> str:
         """Run one full exchange; return every message's text joined by newlines.
 

@@ -1,7 +1,7 @@
 """MCP server (local driver) — exposes the CBP channel as Claude Code tools.
 
 Each tool builds a request line, runs one full clipboard exchange via
-``LocalChannel.request`` (send_query + read_responses, §9), and returns the
+``LocalChannel.request`` (send_query + read_responses, §8), and returns the
 reassembled text. The channel serializes exchanges internally (one shared slot),
 so concurrent tool calls are safe. Logs go to stderr — stdout is the MCP stdio
 transport and must stay clean.

@@ -4,7 +4,7 @@
 
 This document specifies a **request/response data channel** to a helper process running
 *inside* a remote desktop session (Citrix, Windows 365, RDP-style), across a boundary that
-normally blocks integration (no network path, no file share, restricted or absent clipboard).
+normally blocks integration (no network path, no file share, restricted clipboard).
 
 Scope is deliberately narrowed to the **data path only**: getting a small request *into* the
 session and pulling a result (potentially large, potentially binary) *out*. It does **not**
@@ -12,25 +12,23 @@ cover driving GUI applications by synthetic mouse/keyboard, OCR of arbitrary app
 element detection. Those belong to a separate perception/action spec and are explicitly out
 of scope here.
 
-The system supports **two physical transports** behind one protocol:
+The transport is the **clipboard**:
 
 - **Clipboard transport (CBP)** — for sessions where clipboard text sync works. Bidirectional,
-  lossless, the happy path. This is the primary deliverable.
-- **Keyboard+QR transport** — for locked-down sessions with no clipboard. Keyboard in, QR out.
-  Lossy physical layer, heavier framing. Fallback path.
+  lossless, the happy path. This is the deliverable.
 
-Both implement the same request/response abstraction and talk to the same in-session helper,
-so the helper logic, command set, compression, and local caller are identical across both.
+The helper logic, command set, compression, and local caller are all defined against this one
+transport.
 
 This spec is written for a coding agent to implement. Where a concrete library is named it is
 a recommended default, not a mandate.
 
 ---
 
-## 1. Scoping assumptions (confirm or override)
+## 1. Scoping assumption (confirm or override)
 
-Two design points were left open during design discussion. This spec commits to the stronger
-option for each; both are called out here so they can be overridden cheaply.
+One design point was left open during design discussion. This spec commits to the stronger
+option; it is called out here so it can be overridden cheaply.
 
 1. **Helper runs as a persistent REPL**, started once per session (via login script, manual
    launch, or a one-time bootstrap), then stays resident reading requests and emitting
@@ -38,14 +36,9 @@ option for each; both are called out here so they can be overridden cheaply.
    turn-taking are natural in a resident loop and awkward in a one-shot-per-command model
    (which reintroduces per-launch readiness races). *If overridden to one-shot:* each
    exchange must begin with a readiness handshake and the helper must re-establish transport
-   state on every launch; §7 notes the deltas.
+   state on every launch; §6 notes the deltas.
 
-2. **VDI #1 (no clipboard) inbound is keyboard-only.** The remote cannot see the local
-   screen, so requests must arrive as keystrokes typed into the helper. *If a non-keyboard
-   inbound path exists* (a polled dropfile, a socket) the keyboard slice of the QR transport
-   can be dropped.
-
-Everything else in this spec is independent of these two choices.
+Everything else in this spec is independent of this choice.
 
 ---
 
@@ -59,18 +52,17 @@ Everything else in this spec is independent of these two choices.
 │             read_responses)                     │
 │                     │                           │
 │             ┌───────▼────────┐                  │
-│             │  Transport     │  ◄── one interface, two impls
-│             │  interface     │                  │
-│             └───┬────────┬───┘                  │
-│      ClipboardTransport  KeyboardQRTransport     │
-│         (CBP)            (keyboard in / QR out)  │
-└───────────┬──────────────────┬──────────────────┘
-            │ clipboard sync    │ keystrokes down / pixels up
-┌───────────▼──────────────────▼──────────────────┐
+│             │  Transport     │                  │
+│             │  (Clipboard)   │                  │
+│             └───────┬────────┘                  │
+│                     │                           │
+└─────────────────────┼───────────────────────────┘
+                      │ clipboard sync
+┌─────────────────────▼───────────────────────────┐
 │  REMOTE SESSION                                  │
 │             ┌────────────────┐                   │
-│             │  Transport     │  (mirror impls)   │
-│             │  interface     │                   │
+│             │  Transport     │                   │
+│             │  (Clipboard)   │                   │
 │             └───────┬────────┘                   │
 │                     │                            │
 │             ┌───────▼────────┐                   │
@@ -90,8 +82,8 @@ can begin consuming message 1 while the helper is still computing message 3.
 
 | Module | Responsibility | Must not do |
 |---|---|---|
-| `channel` | Public API, exchange orchestration, reassembly, decode | Know which transport is active |
-| `transport` | Interface + `ClipboardTransport` + `KeyboardQRTransport` | Business logic, command semantics |
+| `channel` | Public API, exchange orchestration, reassembly, decode | Physical transport I/O |
+| `transport` | `Transport` interface + `ClipboardTransport` | Business logic, command semantics |
 | `codec` | Framing, base64, compression, CRC, chunk split/join | Transport I/O |
 | `helper` | Resident REPL, command dispatch, response generators | Transport internals |
 | `commands` | The actual in-session operations (grep, read, exec…) | Framing/transport |
@@ -101,8 +93,7 @@ can begin consuming message 1 while the helper is still computing message 3.
 ## 3. The protocol: CBP (Clipboard Protocol)
 
 CBP is defined over a **single shared text slot with no notifications and no framing** — the
-clipboard. Every property below follows from that constraint. The QR transport (§6) reuses
-the same frame structure and state machine; only the physical read/write differs.
+clipboard. Every property below follows from that constraint.
 
 ### 3.1 Frame format
 
@@ -165,7 +156,7 @@ UTF-8 with no framing-ambiguous characters; otherwise `B`. When in doubt, `B` �
 An **exchange** = one `REQ` plus everything the responder returns under the same nonce. It
 contains one or more **messages** (`MSG=1,2,…`), each optionally **chunked** (`SEQ/TOTAL`).
 Discipline is **stop-and-wait**: every `RSP` frame is `ACK`'d before the next is written
-(mandatory for the clipboard's single slot; §6 notes the QR variant).
+(mandatory for the clipboard's single slot).
 
 ```
 LOCAL (requester)                          REMOTE (helper)
@@ -245,14 +236,14 @@ CBP/1 FIN 9c1f0a3e 0 0/0 - - 0 - -
 
 ## 4. Transport interface
 
-Both transports implement the same interface; `channel` is written against it and never
-branches on transport type.
+`channel` is written against this interface and never touches the clipboard directly. Keeping
+it an interface (rather than inlining clipboard calls) isolates the physical medium and its
+settle/retry quirks in one place.
 
 ```python
 class Transport(Protocol):
     def write_frame(self, frame: bytes) -> None: ...
-    # Blocks until the frame is placed on the physical medium
-    # (clipboard set / QR rendered+settled / keystrokes sent).
+    # Blocks until the frame is placed on the physical medium (clipboard set).
 
     def read_frame(self, timeout_ms: int) -> Frame | None: ...
     # Polls the medium; returns the next *new, valid* frame
@@ -260,20 +251,19 @@ class Transport(Protocol):
     # Truncation/partial-sync retries happen INSIDE this call.
 
     def scrub(self) -> None: ...
-    # Clears the slot / renders IDLE. No-op where not applicable.
+    # Clears the slot / renders IDLE.
 
     def probe(self) -> TransportCaps: ...
-    # Returns { max_payload, direction, lossy, needs_ack } —
-    # e.g. clipboard cap from §3.6, or QR version/tile budget.
+    # Returns { max_payload, needs_ack } — e.g. the clipboard cap from §3.6.
 ```
 
 `Frame` is the parsed header + raw payload. Header parse/serialize, base64, compression, CRC,
-and chunk split/join live in `codec` and are shared by both transports — a transport only
-does physical I/O plus the truncation/settle retry appropriate to its medium.
+and chunk split/join live in `codec` and are shared — a transport only does physical I/O plus
+the truncation/settle retry appropriate to its medium.
 
 ---
 
-## 5. Clipboard transport (primary)
+## 5. Clipboard transport
 
 Implements §3 directly.
 
@@ -291,42 +281,9 @@ Implements §3 directly.
 
 ---
 
-## 6. Keyboard+QR transport (fallback)
+## 6. The helper (in-session REPL)
 
-Same frames, same state machine, different physical layer and one flow-control change.
-
-- **Inbound (local → remote):** the serialized `REQ`/`ACK`/`FIN` frame is **typed** into the
-  helper via synthetic keystrokes (scan-code `SendInput`, inter-key pacing). Keep inbound
-  frames small (requests and ACKs are tiny, so this is fine). Guard keyboard-layout hazards
-  (Umlaute, `@`, `\`, `|`).
-- **Outbound (remote → local):** the helper **renders** each `RSP` frame as one or more QR
-  codes into a **fixed screen rectangle**; local captures that rect and decodes.
-  - **`lossy = true`.** VDI display codecs corrupt QR under motion. Render **static**, hold
-    still, and gate decode on a **stable-frame detector** (tile-hash idle) so the frame has
-    settled to lossless before decoding.
-  - **Encoding:** `segno` → raw numpy nearest-neighbor blit at integer module size (6–8 px),
-    full quiet zone, ECC level Q/H. **Decoding:** `zxing-cpp` primary; `pyzbar`/OpenCV
-    fallback. Crop to the fixed rect + grayscale before decode.
-- **Flow control:** stop-and-wait works but is slow (settle-time per frame). Two upgrades,
-  both preserving CBP semantics:
-  - **Spatial multiplexing** — tile N QR codes (distinct `seq`s) in the rect, decode all per
-    capture. Multiplies throughput at constant reliability. Preferred first upgrade.
-  - **Fountain coding** — for large/streaming messages, emit rateless LT/raptor-coded frames
-    (loop until the local side signals `enough`), so lost frames cost only a few extras and
-    no per-frame ACK round-trip is needed. Maps onto CBP as a message whose `TOTAL=0` stream
-    is fountain-coded; the `END`/`enough` signal terminates it.
-- **`probe()`** returns the QR version, module size, tile count, and whether fountain mode is
-  enabled.
-
-**Do not use QR as a bulk file pipe.** Realistic throughput is tens of KB/s after settle
-times and ECC. The correct response to "payload too big for QR" is §8 (filter/compress
-remote-side), not more frames.
-
----
-
-## 7. The helper (in-session REPL)
-
-A resident process (§1 assumption 1). Loop:
+A resident process (§1). Loop:
 
 ```
 loop:
@@ -347,12 +304,12 @@ loop:
   lines first, final data last; the transport handles `MORE`/`END`, chunking, and per-frame
   ACKs. This is what makes multi-response first-class rather than bolted on.
 - **`send_response`** applies the §3.2 pipeline (compress? → encode? → chunk under cap → frame
-  → write → await ACK per frame for ack-needing transports).
+  → write → await ACK per frame).
 - **One-shot override (§1):** if the helper is launched per-command, wrap the loop body in a
   bootstrap that (a) signals readiness, (b) reads exactly one REQ, (c) streams the response,
   (d) exits. Local side must then launch + await-ready before each exchange.
 
-### 7.1 Command interface (starter set)
+### 6.1 Command interface (starter set)
 
 Requests are a simple verb + args line (or JSON). The command set is where the "push the
 query into the remote" principle lives — the helper does the work in-session and returns only
@@ -373,7 +330,7 @@ the result.
 
 ---
 
-## 8. Payload larger than one frame — strategy order
+## 7. Payload larger than one frame — strategy order
 
 Applied by the helper before it ever chunks, in this order:
 
@@ -381,8 +338,8 @@ Applied by the helper before it ever chunks, in this order:
    log — return the 50 matching lines. Most "too big" cases disappear here.
 2. **Compress** (zstd default). Text/logs/JSON compress 5–10×; a 20 KB result becomes ~3 KB.
 3. **Chunk** under the transport cap (§3.6) — sequential `SEQ/TOTAL`, lossless reassembly.
-   No fountain codes needed on the clipboard (it's lossless); QR uses fountain for large
-   streams (§6).
+   The clipboard is lossless, so plain sequential chunking suffices; no forward error
+   correction is needed.
 4. **Still massive?** That's a signal to reduce further remote-side, not to transport it.
    Surface a `payload_too_large` error suggesting a narrower query.
 
@@ -390,13 +347,13 @@ Applied by the helper before it ever chunks, in this order:
 |---|---|
 | Caller controls what's emitted | Always filter + compress first |
 | Fits one frame after that | Single message, done |
-| A few frames | Chunked message, per-frame integrity (clipboard) / multiplex (QR) |
-| Large / streaming | Multiple messages; QR → fountain, clipboard → sequential chunks |
+| A few frames | Chunked message, per-frame integrity |
+| Large / streaming | Multiple messages, each sequentially chunked |
 | Truly massive (many MB) | Reject with `payload_too_large`; narrow the query |
 
 ---
 
-## 9. Local channel API
+## 8. Local channel API
 
 ```python
 send_query(payload, enc='A'|'B', comp='-') -> nonce
@@ -413,24 +370,24 @@ Higher-level convenience wrappers over the command set (`remote_grep(...)`,
 
 ---
 
-## 10. Error taxonomy
+## 9. Error taxonomy
 
 Every failure surfaces a machine-readable code, never a bare string:
 
 `transport_timeout`, `crc_mismatch`, `len_mismatch`, `truncated_retry_exhausted`,
-`nonce_mismatch`, `payload_too_large`, `clipboard_unavailable`, `qr_decode_failed`,
-`helper_not_ready`, `command_error`, `unsupported_encoding`.
+`nonce_mismatch`, `payload_too_large`, `clipboard_unavailable`, `helper_not_ready`,
+`command_error`, `unsupported_encoding`.
 
 `ERR` frames carry `command_error` (helper-side command failure, payload = message).
 Transport-layer failures are raised locally by the transport/codec.
 
 ---
 
-## 11. Configuration
+## 10. Configuration
 
 ```toml
 [transport]
-kind = "clipboard"          # clipboard | keyboard_qr
+kind = "clipboard"
 poll_interval_ms = 75
 truncation_retries = 10
 
@@ -438,14 +395,6 @@ truncation_retries = 10
 format = "unicode_text"
 probe_cap_on_start = true   # empirical cap discovery (§3.6)
 restore_user_clipboard = true
-
-[keyboard_qr]
-qr_rect = [40, 40, 900, 900]   # fixed screen rect for QR out
-module_px = 8
-ecc = "Q"
-multiplex_tiles = 4
-fountain = false
-interkey_delay_ms = [20, 50]
 
 [codec]
 compress = "zstd"           # zstd | gzip | none
@@ -459,7 +408,7 @@ max_get_bytes = 8388608     # guard for the `get` command
 
 ---
 
-## 12. Build order
+## 11. Build order
 
 **M1 — Codec + clipboard happy path.** `codec` (frame parse/serialize, base64, CRC,
 zstd, chunk split/join), `ClipboardTransport` with cap probe + truncation guard, the CBP
@@ -473,16 +422,14 @@ path, `IDLE` scrub + optional user-clipboard restore. DoD: a streamed multi-mess
 with a chunked binary (`ENC=B COMP=Z`) final message reassembles correctly under induced
 duplicate/stale reads.
 
-**M3 — QR/keyboard fallback.** `KeyboardQRTransport` (segno render + stable-frame gate +
-zxing-cpp decode; scan-code inbound), behind the same interface. Stop-and-wait first, then
-spatial multiplexing. DoD: same exchanges as M1–M2 run unmodified over QR by config switch.
-
-**M4 — Throughput + robustness.** Fountain mode for large QR streams, empirical cap tuning,
-`stats`/self-test, one-shot helper mode.
+**M3 — Throughput + robustness.** Empirical cap tuning, `stats`/self-test, one-shot helper
+mode, retransmit-on-clobber so a mid-exchange foreign clipboard write can't strand an
+exchange. DoD: exchanges complete correctly while a real user copies text into the clipboard
+mid-exchange.
 
 ---
 
-## 13. Non-goals
+## 12. Non-goals
 
 GUI automation (mouse/click/OCR-of-apps), driving the session UI, multi-session, rich
 clipboard formats, and bulk multi-MB file transfer. The channel is a request/response

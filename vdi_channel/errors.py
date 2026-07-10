@@ -1,8 +1,8 @@
-"""Error taxonomy (§10). Every failure carries a machine-readable code."""
+"""Error taxonomy (§9). Every failure carries a machine-readable code."""
 
 
 class ChannelError(Exception):
-    """Base for all channel failures. ``code`` is one of the §10 identifiers."""
+    """Base for all channel failures. ``code`` is one of the §9 identifiers."""
 
     code = "channel_error"
 

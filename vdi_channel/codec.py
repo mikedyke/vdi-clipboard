@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from .errors import CrcMismatch, LenMismatch, UnsupportedEncoding
 
-try:  # zstd is the default per §11; gzip is the stdlib fallback
+try:  # zstd is the default per §10; gzip is the stdlib fallback
     import zstandard as _zstd
 except Exception:  # pragma: no cover
     _zstd = None
@@ -186,7 +186,7 @@ def _strip_b64(data: bytes) -> bytes:
 
 
 # --------------------------------------------------------------------------- #
-# Chunking (§3.6, §8 step 3)
+# Chunking (§3.6, §7 step 3)
 # --------------------------------------------------------------------------- #
 def split_chunks(wire: bytes, chunk_max: int) -> list[bytes]:
     if len(wire) <= chunk_max:

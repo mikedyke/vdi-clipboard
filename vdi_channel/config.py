@@ -1,4 +1,4 @@
-"""Configuration defaults (§11). Overridable via env or constructor kwargs."""
+"""Configuration defaults (§10). Overridable via env or constructor kwargs."""
 
 from __future__ import annotations
 

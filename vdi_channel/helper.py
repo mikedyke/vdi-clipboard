@@ -1,4 +1,4 @@
-"""In-session helper REPL (§7) — the responder half of the CBP state machine.
+"""In-session helper REPL (§6) — the responder half of the CBP state machine.
 
 Loop: poll for a REQ with a new nonce, decode it, run ``dispatch()`` (a generator
 of logical messages), and stream each back as RSP frames — compressing, chunking
@@ -47,7 +47,7 @@ class Helper:
                 log.warning("exchange aborted: %s", e)
 
     def serve_once(self, timeout_ms: int = 24 * 3600 * 1000) -> bool:
-        """One-shot mode (§7 override): handle a single REQ then return."""
+        """One-shot mode (§6 override): handle a single REQ then return."""
         return self._serve_once(timeout_ms)
 
     def _serve_once(self, timeout_ms: int = 24 * 3600 * 1000) -> bool:

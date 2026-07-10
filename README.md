@@ -5,7 +5,7 @@
 A request/response **data channel into a VDI session over the clipboard**, plus a
 **Claude Code MCP server** that drives it. Implements the CBP (Clipboard Protocol)
 from [`data-channel-spec.md`](data-channel-spec.md) — clipboard transport (§3, §5),
-compression (§3.2), multi-message streaming and chunking (§3.3, §8).
+compression (§3.2), multi-message streaming and chunking (§3.3, §7).
 
 ```
 Claude Code ──stdio──► MCP server (local driver) ──clipboard──► Helper (in VDI) ──► PowerShell
@@ -61,7 +61,7 @@ Claude Code then has these tools (all run *in-session*, only results cross the w
 | `vdi_get`  | Whole file, compressed+chunked (bounded by `max_get_bytes`) |
 
 Prefer `grep`/`read`/`stat` (a slice) over `get` (the blob) — the channel is a
-needle-delivery mechanism, not a file pipe (§7.1, §13).
+needle-delivery mechanism, not a file pipe (§6.1, §12).
 
 ## Testing
 
@@ -91,10 +91,10 @@ python test_interference.py   # a 'user' copying text during live exchanges
 | `codec.py` | §3.1, §3.2, §3.6 | Frame parse/serialize, base64, zstd/gzip, CRC32, chunk split/join |
 | `clipboard.py` | §5 | `CF_UNICODETEXT` I/O (pywin32 → pyperclip fallback) |
 | `transport.py` | §4, §5 | Physical read/write, `_last_raw` dedupe, truncation retry, cap probe |
-| `channel.py` | §3.3, §9 | Requester half: `send_query` / `read_responses`, `request()` |
-| `helper.py` | §7 | Responder REPL: poll → dispatch → stream RSP with MORE/END + ACK |
-| `commands.py` | §7.1 | `ping`/`exec`/`read`/`grep`/`stat`/`ls`/`get` (PowerShell + filesystem) |
-| `mcp_server.py` | §9 | FastMCP tools wrapping `channel.request` |
+| `channel.py` | §3.3, §8 | Requester half: `send_query` / `read_responses`, `request()` |
+| `helper.py` | §6 | Responder REPL: poll → dispatch → stream RSP with MORE/END + ACK |
+| `commands.py` | §6.1 | `ping`/`exec`/`read`/`grep`/`stat`/`ls`/`get` (PowerShell + filesystem) |
+| `mcp_server.py` | §8 | FastMCP tools wrapping `channel.request` |
 
 **Key correctness points** (all clipboard-specific hazards from §3.4, learned the
 hard way in testing):
@@ -121,18 +121,18 @@ hard way in testing):
 
 ## Configuration
 
-Defaults live in `config.py` (§11) and are overridable via `VDI_*` env vars, e.g.
+Defaults live in `config.py` (§10) and are overridable via `VDI_*` env vars, e.g.
 `VDI_COMPRESS=gzip`, `VDI_POLL_INTERVAL_MS=50`, `VDI_MAX_GET_BYTES=4194304`,
 `VDI_PROBE_CAP_ON_START=false`. The MCP server reads them from its environment
 (see `.mcp.json`); the helper reads them from the session environment.
 
 ## Scope
 
-Implemented: the **clipboard transport** (spec build order M1 + M2 — codec, cap probe,
-truncation guard, state machine, multi-response streaming, chunking, compression,
-dedupe/idempotent ACK, ERR path, IDLE scrub). **Not** implemented: the Keyboard+QR
-fallback transport (M3+, §6) — the `Transport` interface is in place for it — and rich
-clipboard formats / bulk file transfer (explicit non-goals, §13).
+Implemented: the **clipboard transport** end to end (spec build order M1–M3 — codec, cap
+probe, truncation guard, state machine, multi-response streaming, chunking, compression,
+dedupe/idempotent ACK, ERR path, IDLE scrub, retransmit-on-clobber). Explicit non-goals
+(§12): rich clipboard formats and bulk multi-MB file transfer — the channel is a
+request/response needle-delivery mechanism, not a file pipe.
 
 ## License
 

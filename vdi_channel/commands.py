@@ -1,13 +1,13 @@
-"""In-session command set (§7.1).
+"""In-session command set (§6.1).
 
 Each command is a generator of ``bytes`` — one ``yield`` per logical message
 (the MSG multi-response axis, §3.1). Yield progress first, final data last; the
 helper turns yields into MORE/END framing, chunking and compression.
 
-Design intent (§7.1): prefer grep/read/stat (a slice) over get (the blob). The
+Design intent (§6.1): prefer grep/read/stat (a slice) over get (the blob). The
 channel is a needle-delivery mechanism, not a file-transfer pipe. The heavy
 lifting happens *in-session* — we push the query to the remote and return only
-the result (§8 step 1).
+the result (§7 step 1).
 """
 
 from __future__ import annotations
