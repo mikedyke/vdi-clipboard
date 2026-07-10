@@ -20,6 +20,15 @@ from .transport import ClipboardTransport
 
 log = logging.getLogger("vdi.helper")
 _SENTINEL = object()
+_PREVIEW_LIMIT = 200
+
+
+def _preview(data: bytes) -> str:
+    """Short, single-line-friendly rendering of a result for the log (§ helper)."""
+    text = data.decode("utf-8", "replace").replace("\r\n", "\n")
+    if len(text) > _PREVIEW_LIMIT:
+        return text[:_PREVIEW_LIMIT] + f"...(+{len(text) - _PREVIEW_LIMIT} more chars)"
+    return text or "(empty)"
 
 
 class Helper:
@@ -97,6 +106,8 @@ class Helper:
             cur = next(it, _SENTINEL)
             is_final = cur is _SENTINEL
             idx += 1
+            log.info("command %s msg %d -> clipboard (%dB): %s",
+                      nonce, idx, len(prev), _preview(prev))
             self._send_message(nonce, idx, prev, is_final=is_final)
             prev = cur
 
