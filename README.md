@@ -23,15 +23,26 @@ Two processes talk through one shared clipboard text slot:
 
 ## Install
 
+The two sides have different dependencies, so the deps are split into extras — pick
+the one for the machine you're on:
+
 ```powershell
-pip install -e .
+pip install -e ".[server]"    # local host: MCP server + channel (pulls in mcp)
+pip install -e ".[client]"    # inside the VDI session: helper only, no mcp
 ```
 
-This pulls in `mcp`, `zstandard`, and `pyperclip` (plus `pywin32` on Windows) and
-registers two console scripts: **`vdi-mcp`** (local driver) and **`vdi-helper`**
-(in-session). gzip is the compression fallback when `zstandard` is absent, and
-`pyperclip` the clipboard fallback when `pywin32` is unavailable. `requirements.txt`
-is kept for a plain `pip install -r` if you prefer not to install the package.
+Both register the console scripts **`vdi-mcp`** (local driver) and **`vdi-helper`**
+(in-session). The **client** extra is deliberately minimal — clipboard access
+(`pyperclip`, plus `pywin32` on Windows) and `zstandard`; **`mcp` is not installed on
+the client**. gzip is the compression fallback when `zstandard` is absent, and
+`pyperclip` the clipboard fallback when `pywin32` is unavailable.
+
+Prefer plain pip? `requirements.txt` is the full/server set and
+`requirements-client.txt` the minimal client set:
+
+```powershell
+pip install -r requirements-client.txt   # in-session helper only
+```
 
 ## Run
 
@@ -62,6 +73,18 @@ Claude Code then has these tools (all run *in-session*, only results cross the w
 
 Prefer `grep`/`read`/`stat` (a slice) over `get` (the blob) — the channel is a
 needle-delivery mechanism, not a file pipe (§6.1, §12).
+
+## Logging
+
+The helper writes a timestamped audit trail to stderr: for every request it logs the
+command (`command <nonce>: <verb> <args>`) and its outcome/duration, and for each
+in-session shell execution the command, exit code, duration and output size
+(`exec: ...` / `exec done: rc=0 in 237ms, 13B: ...`). Timestamps come from the log
+format configured in `vdi-helper`. Redirect stderr to a file to keep the trail:
+
+```powershell
+vdi-helper 2>> vdi-helper.log
+```
 
 ## Testing
 

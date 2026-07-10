@@ -62,18 +62,25 @@ class Helper:
         request = codec.decode_payload(frame.enc, frame.comp, frame.payload).decode(
             "utf-8", "replace"
         )
-        log.info("REQ %s: %s", nonce, request)
+        log.info("command %s: %s", nonce, request)  # timestamped by the log format
 
+        started = time.monotonic()
+        outcome = "ok"
         try:
             gen = commands.dispatch(request, self.cfg, self.cap)
             self._stream(nonce, gen)
         except CommandError as e:
+            outcome = f"error({e.code})"
             self._send_error(nonce, e)
-        except ChannelError:
+        except ChannelError as e:
+            outcome = f"transport_error({e.code})"
             raise
         except Exception as e:  # unexpected command bug -> ERR, not a crash
+            outcome = f"error({type(e).__name__})"
             self._send_error(nonce, CommandError(f"{type(e).__name__}: {e}"))
         finally:
+            log.info("command %s done in %dms: %s",
+                     nonce, int((time.monotonic() - started) * 1000), outcome)
             self._finalize(nonce)
         return True
 

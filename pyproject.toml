@@ -17,15 +17,32 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
     "Operating System :: OS Independent",
 ]
-dependencies = [
-    "mcp>=1.2.0",
-    "zstandard>=0.22.0",
-    "pyperclip>=1.8.2",
-    "pywin32>=306; sys_platform == 'win32'",
-]
+# No mandatory deps: pick an extra below. This keeps the in-session client free of
+# the MCP SDK, which only the local driver needs.
+dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+# In-session helper (client) — clipboard + compression only, no MCP.
+client = [
+    "pyperclip>=1.8.2",
+    "pywin32>=306; sys_platform == 'win32'",
+    "zstandard>=0.22.0",
+]
+# Local driver / MCP server — the client deps plus the MCP SDK.
+server = [
+    "mcp>=1.2.0",
+    "pyperclip>=1.8.2",
+    "pywin32>=306; sys_platform == 'win32'",
+    "zstandard>=0.22.0",
+]
+# Everything above plus test tooling.
+dev = [
+    "pytest>=7.0",
+    "mcp>=1.2.0",
+    "pyperclip>=1.8.2",
+    "pywin32>=306; sys_platform == 'win32'",
+    "zstandard>=0.22.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/mikedyke/vdi-clipboard"

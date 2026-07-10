@@ -13,6 +13,7 @@ the result (§7 step 1).
 from __future__ import annotations
 
 import glob as _glob
+import logging
 import os
 import shlex
 import subprocess
@@ -24,9 +25,21 @@ from .errors import CommandError, PayloadTooLarge
 
 VERSION = "vdi-helper/1"
 
+# Audit log of what actually runs in-session. Timestamps come from the handler
+# format configured in helper.main() ("%(asctime)s ..."); see also the per-request
+# line the helper logs. Keeping the shell logger separate lets an operator route
+# just the executed-command audit trail somewhere if they want.
+log = logging.getLogger("vdi.commands")
+
 
 def run_ps(command: str, timeout: float = 300.0) -> bytes:
-    """Execute a PowerShell command in-session, returning stdout+stderr bytes."""
+    """Execute a PowerShell command in-session, returning stdout+stderr bytes.
+
+    Logs the command before running and its result (exit code, duration, size)
+    after, so every in-session execution is recorded with a timestamp.
+    """
+    log.info("exec: %s", command)
+    started = time.monotonic()
     try:
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
@@ -35,10 +48,13 @@ def run_ps(command: str, timeout: float = 300.0) -> bytes:
     except FileNotFoundError:  # non-Windows dev box — fall back to sh
         proc = subprocess.run(["sh", "-c", command], capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
+        log.warning("exec timed out after %.0fs: %s", timeout, command)
         raise CommandError(f"command timed out after {timeout}s")
     out = proc.stdout or b""
     if proc.stderr:
         out += (b"\n" if out else b"") + proc.stderr
+    log.info("exec done: rc=%s in %dms, %dB: %s",
+             proc.returncode, int((time.monotonic() - started) * 1000), len(out), command)
     return out
 
 

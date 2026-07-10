@@ -1,5 +1,8 @@
-# Local driver (MCP server) + in-session helper
-mcp>=1.2.0            # MCP server SDK (FastMCP) — local driver only
-zstandard>=0.22.0    # default compression (§11); gzip stdlib is the fallback
-pywin32>=306         # Windows CF_UNICODETEXT clipboard access (primary)
-pyperclip>=1.8.2     # portable clipboard fallback (non-Windows / dev)
+# Full install: local driver (MCP server) + in-session helper.
+# For a minimal client-only install, use requirements-client.txt instead.
+# Equivalent to:  pip install "vdi-clipboard[server]"
+
+mcp>=1.2.0                             # MCP server SDK (FastMCP) — local driver only
+zstandard>=0.22.0                      # default compression (§10); gzip stdlib is the fallback
+pywin32>=306; sys_platform == 'win32'  # Windows CF_UNICODETEXT clipboard access (primary)
+pyperclip>=1.8.2                       # portable clipboard fallback (non-Windows / dev)

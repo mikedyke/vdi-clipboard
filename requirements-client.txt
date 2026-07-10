@@ -1,0 +1,9 @@
+# Minimal dependencies for the in-session VDI helper (client / responder side).
+# Run inside the remote desktop session:  python run_helper.py
+#
+# Note: no `mcp` here — the MCP SDK is only needed by the local-driver server.
+# Equivalent to:  pip install "vdi-clipboard[client]"
+
+pyperclip>=1.8.2                       # clipboard access (portable fallback)
+pywin32>=306; sys_platform == 'win32'  # CF_UNICODETEXT on Windows (preferred backend)
+zstandard>=0.22.0                      # default compression (gzip stdlib fallback if absent)
