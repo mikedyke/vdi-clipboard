@@ -152,7 +152,26 @@ class Helper:
         raise TransportTimeout(f"no {want} for nonce {nonce} msg={msg} seq={seq}")
 
     def _finalize(self, nonce: str) -> None:
-        """After FIN, scrub the slot to IDLE so a stale RSP can't be re-read."""
+        """After FIN, scrub the slot to IDLE so a stale RSP can't be re-read.
+
+        Skipped if the slot already holds a REQ for a *different* nonce: after a
+        long stall (e.g. this exchange timed out waiting for an ACK that never
+        came — the requester moved on, or a second helper answered first), the
+        requester may have already started a new exchange. Blindly scrubbing here
+        would clobber that live REQ and silently drop it.
+        """
+        cur = self.t.cb.get_text()
+        if cur is not None:
+            norm = codec.normalize(cur)
+            if norm.startswith(codec.MAGIC):
+                try:
+                    frame = codec.parse(norm)
+                except Exception:
+                    frame = None
+                if frame is not None and frame.type == codec.REQ and frame.nonce != nonce:
+                    log.info("skip IDLE scrub for %s: slot now holds a newer REQ (%s)",
+                             nonce, frame.nonce)
+                    return
         self.t.write_frame(codec.make_idle(nonce))
         log.info("exchange %s done", nonce)
 
