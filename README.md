@@ -1,5 +1,7 @@
 # vdi-clipboard
 
+[![CI](https://github.com/mikedyke/vdi-clipboard/actions/workflows/ci.yml/badge.svg)](https://github.com/mikedyke/vdi-clipboard/actions/workflows/ci.yml)
+
 A request/response **data channel into a VDI session over the clipboard**, plus a
 **Claude Code MCP server** that drives it. Implements the CBP (Clipboard Protocol)
 from [`data-channel-spec.md`](data-channel-spec.md) — clipboard transport (§3, §5),
@@ -22,18 +24,21 @@ Two processes talk through one shared clipboard text slot:
 ## Install
 
 ```powershell
-pip install -r requirements.txt
+pip install -e .
 ```
 
-`zstandard`, `pywin32`, and `pyperclip` are used when present; gzip + pyperclip are
-the fallbacks.
+This pulls in `mcp`, `zstandard`, and `pyperclip` (plus `pywin32` on Windows) and
+registers two console scripts: **`vdi-mcp`** (local driver) and **`vdi-helper`**
+(in-session). gzip is the compression fallback when `zstandard` is absent, and
+`pyperclip` the clipboard fallback when `pywin32` is unavailable. `requirements.txt`
+is kept for a plain `pip install -r` if you prefer not to install the package.
 
 ## Run
 
 **Inside the VDI session** (the remote side):
 
 ```powershell
-python run_helper.py
+vdi-helper          # or: python run_helper.py
 ```
 
 **On the local host**, register the MCP server with Claude Code. A ready-made
@@ -58,13 +63,25 @@ Claude Code then has these tools (all run *in-session*, only results cross the w
 Prefer `grep`/`read`/`stat` (a slice) over `get` (the blob) — the channel is a
 needle-delivery mechanism, not a file pipe (§7.1, §13).
 
-## Test without Claude Code
+## Testing
+
+The `tests/` suite runs the full protocol over an **in-memory clipboard** — no OS
+clipboard or VDI needed, so it's deterministic and CI-safe (this is what the CI
+badge above runs, on Linux + Windows):
+
+```powershell
+pytest
+```
+
+The scripts at the repo root are **manual integration tests** that use the *real* OS
+clipboard, plus a quick CLI:
 
 ```powershell
 python vdi_cli.py ping
 python vdi_cli.py exec "Get-Process | Select-Object -First 5"
-python test_loopback.py   # helper thread + channel over the real clipboard
-python test_mcp.py        # real MCP stdio subprocess + helper thread
+python test_loopback.py       # helper thread + channel over the real clipboard
+python test_mcp.py            # real MCP stdio subprocess + helper thread
+python test_interference.py   # a 'user' copying text during live exchanges
 ```
 
 ## How it works (map to the spec)
@@ -116,3 +133,7 @@ truncation guard, state machine, multi-response streaming, chunking, compression
 dedupe/idempotent ACK, ERR path, IDLE scrub). **Not** implemented: the Keyboard+QR
 fallback transport (M3+, §6) — the `Transport` interface is in place for it — and rich
 clipboard formats / bulk file transfer (explicit non-goals, §13).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

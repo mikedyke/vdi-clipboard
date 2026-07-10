@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vdi-clipboard"
+version = "1.0.0"
+description = "VDI request/response data channel over the clipboard (CBP), with a Claude Code MCP server"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Michael Weigand" }]
+keywords = ["vdi", "clipboard", "mcp", "claude-code", "citrix", "rdp"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "mcp>=1.2.0",
+    "zstandard>=0.22.0",
+    "pyperclip>=1.8.2",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/mikedyke/vdi-clipboard"
+Repository = "https://github.com/mikedyke/vdi-clipboard"
+
+[project.scripts]
+vdi-mcp = "vdi_channel.mcp_server:main"
+vdi-helper = "vdi_channel.helper:main"
+
+[tool.setuptools]
+packages = ["vdi_channel"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

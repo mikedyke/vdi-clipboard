@@ -51,6 +51,29 @@ def _init_backend():
         raise ClipboardUnavailable(str(e))
 
 
+class InMemoryClipboard:
+    """A thread-safe in-process clipboard slot.
+
+    Share one instance between two transports to model the single shared slot
+    without touching the OS clipboard — used by the deterministic test suite / CI
+    where a real clipboard (window station) may be unavailable.
+    """
+
+    def __init__(self):
+        import threading
+        self.name = "memory"
+        self._lock = threading.Lock()
+        self._value: str | None = None
+
+    def get_text(self) -> str | None:
+        with self._lock:
+            return self._value or None
+
+    def set_text(self, text: str) -> None:
+        with self._lock:
+            self._value = text
+
+
 class Clipboard:
     """Thin, retrying wrapper around the OS clipboard text slot."""
 
